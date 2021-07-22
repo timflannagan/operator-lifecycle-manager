@@ -119,9 +119,9 @@ setup-bare: clean e2e.namespace
 	. ./scripts/package_release.sh 1.0.0 test/e2e/resources test/e2e/e2e-bare-values.yaml
 	. ./scripts/install_bare.sh $(shell cat ./e2e.namespace) test/e2e/resources
 
-# e2e test exculding the rh-operators directory which tests rh-operators and their metric cardinality.
+# e2e test excluding the rh-operators directory which tests rh-operators and their metric cardinality.
 e2e:
-	go test -v $(MOD_FLAGS)  -failfast -timeout 150m ./test/e2e/... -namespace=openshift-operators -kubeconfig=${KUBECONFIG} -olmNamespace=openshift-operator-lifecycle-manager -dummyImage=bitnami/nginx:latest -ginkgo.flakeAttempts=3
+	./scripts/e2e.sh
 
 ### Start: End To End Tests ###
 
