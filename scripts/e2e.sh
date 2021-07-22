@@ -8,6 +8,20 @@ set -o errexit
 
 ROOT_DIR=$(dirname "${BASH_SOURCE[0]}")/..
 MOD_FLAGS=${MOD_FLAGS:=""}
+GATHER_TEST_ARTIFACTS=${GATHER_TEST_ARTIFACTS:=false}
+
+function gather_test_artifacts() {
+    exit_status=$?
+
+    if [[ ${GATHER_TEST_ARTIFACTS} = true ]]; then
+        echo "Gathering test artifacts..."
+        "${ROOT_DIR}/scripts/gather_test_artifacts.sh"
+    fi
+
+    exit "$exit_status"
+}
+
+trap gather_test_artifacts EXIT
 
 echo "Running e2e tests"
 go test -v \
