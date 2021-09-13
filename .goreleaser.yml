@@ -1,0 +1,120 @@
+env:
+- GO111MODULE=on
+- CGO_ENABLED=0
+# TODO(tflannag):
+# - Render out installation manifests
+# - Add tagging for latest/v<x.y>/v<x.y.z>
+# - Remove the multi-arch binaries from the release assets?
+# - Need a github token with repo permissions to create
+# - Determine how to deal with the OLM_VERSION file
+before:
+  hooks:
+    - go mod tidy
+    - go mod vendor
+builds:
+  - id: olm
+    main: ./cmd/olm
+    binary: olm
+    goos:
+    - linux
+    goarch:
+    - amd64
+    - arm64
+    tags:
+    - json1
+    flags:
+    - -mod=vendor
+    ldflags:
+    - -X {{ .Env.PKG }}/pkg/version.GitCommit={{ .Env.GIT_COMMIT }}
+    - -X {{ .Env.PKG }}/pkg/version.OLMVersion={{ .Env.OLM_VERSION }}
+  - id: catalog
+    main: ./cmd/catalog
+    binary: catalog
+    goos:
+    - linux
+    goarch:
+    - amd64
+    - arm64
+    tags:
+    - json1
+    flags:
+    - -mod=vendor
+    ldflags:
+    - -X {{ .Env.PKG }}/pkg/version.GitCommit={{ .Env.GIT_COMMIT }}
+    - -X {{ .Env.PKG }}/pkg/version.OLMVersion={{ .Env.OLM_VERSION }}
+  - id: cpb
+    main: ./util/cpb
+    binary: cpb
+    goos:
+    - linux
+    goarch:
+    - amd64
+    - arm64
+    tags:
+    - json1
+    flags:
+    - -mod=vendor
+    ldflags:
+    - -X {{ .Env.PKG }}/pkg/version.GitCommit={{ .Env.GIT_COMMIT }}
+    - -X {{ .Env.PKG }}/pkg/version.OLMVersion={{ .Env.OLM_VERSION }}
+  - id: package-server
+    main: ./cmd/package-server
+    binary: package-server
+    goos:
+    - linux
+    goarch:
+    - amd64
+    - arm64
+    tags:
+    - json1
+    flags:
+    - -mod=vendor
+    ldflags:
+    - -X {{ .Env.PKG }}/pkg/version.GitCommit={{ .Env.GIT_COMMIT }}
+    - -X {{ .Env.PKG }}/pkg/version.OLMVersion={{ .Env.OLM_VERSION }}
+dockers:
+- image_templates:
+  - quay.io/tflannag/olm:{{ .Tag }}-amd64
+  dockerfile: release/Dockerfile
+  use: buildx
+  goos: linux
+  goarch: amd64
+  build_flag_templates:
+  - --platform=linux/arm64
+- image_templates:
+  - quay.io/tflannag/olm:{{ .Tag }}-arm64
+  dockerfile: release/Dockerfile
+  use: buildx
+  goos: linux
+  goarch: arm64
+  build_flag_templates:
+  - --platform=linux/arm64
+docker_manifests:
+- name_template: quay.io/tflannag/olm:{{ .Tag }}
+  image_templates:
+  - quay.io/tflannag/olm:{{ .Tag }}-amd64
+  - quay.io/tflannag/olm:{{ .Tag }}-arm64
+- name_template: quay.io/tflannag/olm:latest
+  image_templates:
+  - quay.io/tflannag/olm:{{ .Tag }}-amd64
+  - quay.io/tflannag/olm:{{ .Tag }}-arm64
+  create_flags:
+  - --amend
+checksum:
+  name_template: 'checksums.txt'
+snapshot:
+  name_template: "{{ .Env.OLM_VERSION }}"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^doc:'
+      - '^test:'
+release:
+  github:
+    owner: timflannagan
+    name: operator-lifecycle-manager
+  name_template: "OLM {{ .Env.OLM_VERSION }}"
+  draft: true
+  extra_files:
+  - glob: ./scripts/install.sh
