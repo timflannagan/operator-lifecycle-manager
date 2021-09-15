@@ -28,8 +28,9 @@ import (
 // with a default PackageServerOptions.
 func NewCommandStartPackageServer(ctx context.Context, defaults *PackageServerOptions) *cobra.Command {
 	cmd := &cobra.Command{
-		Short: "Launch a package API server",
-		Long:  "Launch a package API server",
+		Short:        "Launch a package API server",
+		Long:         "Launch a package API server",
+		SilenceUsage: true,
 		RunE: func(c *cobra.Command, args []string) error {
 			if err := defaults.Run(ctx); err != nil {
 				return err
@@ -183,6 +184,9 @@ func (o *PackageServerOptions) Run(ctx context.Context) error {
 	config, err := o.Config(ctx)
 	if err != nil {
 		return err
+	}
+	if config == nil {
+		return fmt.Errorf("failed to construct an API server config")
 	}
 	config.GenericConfig.EnableMetrics = true
 
