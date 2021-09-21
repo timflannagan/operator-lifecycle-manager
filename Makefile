@@ -119,9 +119,18 @@ setup-bare: clean e2e.namespace
 	. ./scripts/package_release.sh 1.0.0 test/e2e/resources test/e2e/e2e-bare-values.yaml
 	. ./scripts/install_bare.sh $(shell cat ./e2e.namespace) test/e2e/resources
 
-# e2e test exculding the rh-operators directory which tests rh-operators and their metric cardinality.
+GINKGO_OPTS := -flakeAttempts 3 -randomizeAllSpecs -v --timeout 120m
+
+# TODO(tflannag): Remove this target entirely and move downstream
 e2e:
-	go test -v $(MOD_FLAGS)  -failfast -timeout 150m ./test/e2e/... -namespace=openshift-operators -kubeconfig=${KUBECONFIG} -olmNamespace=openshift-operator-lifecycle-manager -dummyImage=bitnami/nginx:latest -ginkgo.flakeAttempts=3
+	$(GINKGO) \
+        ./test/e2e \
+        $(GINKGO_OPTS) \
+        $< -- \
+        -namespace=openshift-operators \
+        -kubeconfig=${KUBECONFIG} \
+        -olmNamespace=openshift-operator-lifecycle-manager \
+        -dummyImage=bitnami/nginx:latest
 
 ### Start: End To End Tests ###
 
@@ -132,7 +141,7 @@ FORCE:
 # main entry point for running end to end tests. used by .github/workflows/e2e-tests.yml See test/e2e/README.md for details
 .PHONY: e2e-local
 e2e-local: bin/e2e-local.test test/e2e-local.image.tar
-	$(GINKGO) -nodes $(or $(NODES),1) -flakeAttempts 3 -randomizeAllSpecs $(if $(TEST),-focus '$(TEST)') -v -timeout 90m $< -- -namespace=operators -olmNamespace=operator-lifecycle-manager -dummyImage=bitnami/nginx:latest -kind.images=../test/e2e-local.image.tar
+	$(GINKGO) -nodes $(or $(NODES),1) -flakeAttempts 1 -randomizeAllSpecs $(if $(TEST),-focus '$(TEST)') -v -timeout 90m $< -- -namespace=operators -olmNamespace=operator-lifecycle-manager -dummyImage=bitnami/nginx:latest -kind.images=../test/e2e-local.image.tar
 
 # this target updates the zz_chart.go file with files found in deploy/chart
 # this will always fire since it has been marked as phony
