@@ -92,13 +92,6 @@ docker_manifests:
   image_templates:
   - quay.io/{{ .Env.IMAGE_REPO }}:{{ .Tag }}-amd64
   - quay.io/{{ .Env.IMAGE_REPO }}:{{ .Tag }}-arm64
-
-- name_template: quay.io/{{ .Env.IMAGE_REPO }}:latest
-  image_templates:
-  - quay.io/{{ .Env.IMAGE_REPO }}:{{ .Tag }}-amd64
-  - quay.io/{{ .Env.IMAGE_REPO }}:{{ .Tag }}-arm64
-  create_flags:
-  - --amend
 checksum:
   name_template: 'checksums.txt'
 snapshot:
