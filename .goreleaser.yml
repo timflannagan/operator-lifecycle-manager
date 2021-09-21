@@ -102,5 +102,6 @@ changelog:
     exclude:
       - '^doc:'
       - '^test:'
+      - '^Merge pull request'
 release:
   draft: true
