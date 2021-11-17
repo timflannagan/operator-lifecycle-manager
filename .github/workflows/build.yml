@@ -9,6 +9,9 @@ jobs:
     steps:
     - name: Check out the repo
       uses: actions/checkout@v2
+      with:
+        ref: 'master'
+
     # - name: Build the container image
     #   uses: docker/build-push-action@v2
     #   with:
