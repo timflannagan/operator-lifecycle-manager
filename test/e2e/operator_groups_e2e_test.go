@@ -1102,7 +1102,7 @@ var _ = Describe("Operator Group", func() {
 		}
 		require.NoError(GinkgoT(), awaitAnnotations(GinkgoT(), q, map[string]string{v1.OperatorGroupProvidedAPIsAnnotationKey: strings.Join([]string{kvgA, kvgB}, ",")}))
 	})
-	It("static provider", func() {
+	FIt("static provider", func() {
 
 		// Generate namespaceA
 		// Generate namespaceB
