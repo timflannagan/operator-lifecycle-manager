@@ -1,24 +1,22 @@
-FROM quay.io/fedora/fedora:34-x86_64 as builder
+FROM golang:1.16 as builder
 LABEL stage=builder
 WORKDIR /build
 
-# install dependencies and go 1.16
+COPY go.mod go.mod
+COPY go.sum go.sum
+RUN go mod download
 
 # copy just enough of the git repo to parse HEAD, used to record version in OLM binaries
-RUN dnf update -y && dnf install -y bash make git mercurial jq wget golang && dnf upgrade -y
 COPY .git/HEAD .git/HEAD
 COPY .git/refs/heads/. .git/refs/heads
 RUN mkdir -p .git/objects
 COPY Makefile Makefile
 COPY OLM_VERSION OLM_VERSION
 COPY pkg pkg
-COPY vendor vendor
-COPY go.mod go.mod
-COPY go.sum go.sum
 COPY cmd cmd
 COPY util util
 COPY test test
-RUN CGO_ENABLED=0 make build
+RUN CGO_ENABLED=0 MOD_FLAGS="" make build
 RUN make build-util
 
 # use debug tag to keep a shell around for backwards compatibility with the previous alpine image
