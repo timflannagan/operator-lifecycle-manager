@@ -8,13 +8,14 @@ on:
   pull_request:
   workflow_dispatch:
 jobs:
-  e2e-tests:
+  e2e:
     strategy:
       fail-fast: false
       matrix:
         parallel-id: [0, 1, 2, 3]
     runs-on: ubuntu-latest
     steps:
+      # TODO: create job to combine test artifacts using code in https://github.com/operator-framework/operator-lifecycle-manager/pull/1476
       - uses: actions/checkout@v1
       - uses: actions/setup-go@v2
         with:
@@ -26,4 +27,12 @@ jobs:
         with:
           name: e2e-test-output-${{ (github.event.pull_request.head.sha || github.sha) }}-${{ github.run_id }}-${{ matrix.parallel-id }}
           path: ${{ github.workspace }}/bin/artifacts/*
-# TODO: create job to combine test artifacts using code in https://github.com/operator-framework/operator-lifecycle-manager/pull/1476
+  e2e-tests:
+    if: ${{ always() }}
+    name: aggregate the e2e-tests matrix results
+    runs-on: ubuntu-latest
+    needs: e2e-tests
+    steps:
+    - name: check individual matrix results
+      if: ${{ needs.e2e-tests.result != 'success '}}
+      run: exit 1
