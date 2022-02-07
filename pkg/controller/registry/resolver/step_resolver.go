@@ -9,7 +9,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
@@ -47,13 +46,24 @@ var _ StepResolver = &OperatorStepResolver{}
 
 func NewOperatorStepResolver(lister operatorlister.OperatorLister, client versioned.Interface, kubeclient kubernetes.Interface,
 	globalCatalogNamespace string, provider RegistryClientProvider, log logrus.FieldLogger) *OperatorStepResolver {
+
+	cacheSourceProvider := &mergedSourceProvider{
+		sps: []cache.SourceProvider{
+			SourceProviderFromRegistryClientProvider(provider, log),
+			&csvSourceProvider{
+				csvLister: lister.OperatorsV1alpha1().ClusterServiceVersionLister(),
+				subLister: lister.OperatorsV1alpha1().SubscriptionLister(),
+				logger:    log,
+			},
+		},
+	}
 	stepResolver := &OperatorStepResolver{
 		subLister:              lister.OperatorsV1alpha1().SubscriptionLister(),
 		csvLister:              lister.OperatorsV1alpha1().ClusterServiceVersionLister(),
 		client:                 client,
 		kubeclient:             kubeclient,
 		globalCatalogNamespace: globalCatalogNamespace,
-		satResolver:            NewDefaultSatResolver(SourceProviderFromRegistryClientProvider(provider, log), lister.OperatorsV1alpha1().CatalogSourceLister(), log),
+		satResolver:            NewDefaultSatResolver(cacheSourceProvider, lister.OperatorsV1alpha1().CatalogSourceLister(), log),
 		log:                    log,
 	}
 
@@ -72,21 +82,6 @@ func (r *OperatorStepResolver) Expire(key cache.SourceKey) {
 }
 
 func (r *OperatorStepResolver) ResolveSteps(namespace string) ([]*v1alpha1.Step, []v1alpha1.BundleLookup, []*v1alpha1.Subscription, error) {
-	// create a generation - a representation of the current set of installed operators and their provided/required apis
-	allCSVs, err := r.csvLister.ClusterServiceVersions(namespace).List(labels.Everything())
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	// TODO: build this index ahead of time
-	// omit copied csvs from generation - they indicate that apis are provided to the namespace, not by the namespace
-	var csvs []*v1alpha1.ClusterServiceVersion
-	for i := range allCSVs {
-		if !allCSVs[i].IsCopied() {
-			csvs = append(csvs, allCSVs[i])
-		}
-	}
-
 	subs, err := r.listSubscriptions(namespace)
 	if err != nil {
 		return nil, nil, nil, err
@@ -94,7 +89,7 @@ func (r *OperatorStepResolver) ResolveSteps(namespace string) ([]*v1alpha1.Step,
 
 	var operators cache.OperatorSet
 	namespaces := []string{namespace, r.globalCatalogNamespace}
-	operators, err = r.satResolver.SolveOperators(namespaces, csvs, subs)
+	operators, err = r.satResolver.SolveOperators(namespaces, subs)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -237,4 +232,22 @@ func (r *OperatorStepResolver) listSubscriptions(namespace string) ([]*v1alpha1.
 	}
 
 	return subs, nil
+}
+
+type mergedSourceProvider struct {
+	sps []cache.SourceProvider
+}
+
+func (msp *mergedSourceProvider) Sources(namespaces ...string) map[cache.SourceKey]cache.Source {
+	result := make(map[cache.SourceKey]cache.Source)
+	for _, sp := range msp.sps {
+		for key, source := range sp.Sources(namespaces...) {
+			if _, ok := result[key]; ok {
+				// todo: deal with this before merging
+				panic("duplicate sourcekey")
+			}
+			result[key] = source
+		}
+	}
+	return result
 }
