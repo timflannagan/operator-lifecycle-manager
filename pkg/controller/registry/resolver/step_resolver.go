@@ -47,16 +47,12 @@ var _ StepResolver = &OperatorStepResolver{}
 func NewOperatorStepResolver(lister operatorlister.OperatorLister, client versioned.Interface, kubeclient kubernetes.Interface,
 	globalCatalogNamespace string, provider RegistryClientProvider, log logrus.FieldLogger) *OperatorStepResolver {
 
-	cacheSourceProvider := &mergedSourceProvider{
-		sps: []cache.SourceProvider{
-			SourceProviderFromRegistryClientProvider(provider, log),
-			&csvSourceProvider{
-				csvLister: lister.OperatorsV1alpha1().ClusterServiceVersionLister(),
-				subLister: lister.OperatorsV1alpha1().SubscriptionLister(),
-				logger:    log,
-			},
-		},
+	sps := []cache.SourceProvider{
+		SourceProviderFromRegistryClientProvider(provider, log),
+		NewCSVSourceProvider(lister.OperatorsV1alpha1().ClusterServiceVersionLister(), lister.OperatorsV1alpha1().SubscriptionLister(), log),
 	}
+	cacheSourceProvider := NewMergedSourceProvider(sps)
+
 	stepResolver := &OperatorStepResolver{
 		subLister:              lister.OperatorsV1alpha1().SubscriptionLister(),
 		csvLister:              lister.OperatorsV1alpha1().ClusterServiceVersionLister(),
@@ -236,6 +232,12 @@ func (r *OperatorStepResolver) listSubscriptions(namespace string) ([]*v1alpha1.
 
 type mergedSourceProvider struct {
 	sps []cache.SourceProvider
+}
+
+func NewMergedSourceProvider(sps []cache.SourceProvider) *mergedSourceProvider {
+	return &mergedSourceProvider{
+		sps: sps,
+	}
 }
 
 func (msp *mergedSourceProvider) Sources(namespaces ...string) map[cache.SourceKey]cache.Source {

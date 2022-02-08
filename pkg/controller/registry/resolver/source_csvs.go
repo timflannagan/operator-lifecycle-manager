@@ -23,6 +23,18 @@ type csvSourceProvider struct {
 	logger    logrus.StdLogger
 }
 
+func NewCSVSourceProvider(
+	csvLister v1alpha1listers.ClusterServiceVersionLister,
+	subLister v1alpha1listers.SubscriptionLister,
+	logger logrus.FieldLogger,
+) *csvSourceProvider {
+	return &csvSourceProvider{
+		csvLister: csvLister,
+		subLister: subLister,
+		logger:    logger,
+	}
+}
+
 func (csp *csvSourceProvider) Sources(namespaces ...string) map[cache.SourceKey]cache.Source {
 	result := make(map[cache.SourceKey]cache.Source)
 	for _, namespace := range namespaces {
