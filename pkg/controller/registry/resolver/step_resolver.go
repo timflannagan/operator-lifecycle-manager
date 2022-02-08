@@ -49,7 +49,7 @@ func NewOperatorStepResolver(lister operatorlister.OperatorLister, client versio
 
 	sps := []cache.SourceProvider{
 		SourceProviderFromRegistryClientProvider(provider, log),
-		NewCSVSourceProvider(lister.OperatorsV1alpha1().ClusterServiceVersionLister(), lister.OperatorsV1alpha1().SubscriptionLister(), log),
+		NewCSVSourceProvider(lister.OperatorsV1alpha1().ClusterServiceVersionLister(), lister.OperatorsV1alpha1().SubscriptionLister(), log, nil),
 	}
 	cacheSourceProvider := NewMergedSourceProvider(sps)
 

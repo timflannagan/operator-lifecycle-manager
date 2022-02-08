@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/blang/semver/v4"
+	kuberpakv1alpha1 "github.com/joelanford/kuberpak/api/v1alpha1"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	v1alpha1listers "github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/listers/operators/v1alpha1"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/controller/registry/resolver/cache"
@@ -15,23 +16,28 @@ import (
 	opregistry "github.com/operator-framework/operator-registry/pkg/registry"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type csvSourceProvider struct {
 	csvLister v1alpha1listers.ClusterServiceVersionLister
 	subLister v1alpha1listers.SubscriptionLister
 	logger    logrus.StdLogger
+	client    client.Client
 }
 
 func NewCSVSourceProvider(
 	csvLister v1alpha1listers.ClusterServiceVersionLister,
 	subLister v1alpha1listers.SubscriptionLister,
 	logger logrus.FieldLogger,
+	client client.Client,
 ) *csvSourceProvider {
 	return &csvSourceProvider{
 		csvLister: csvLister,
 		subLister: subLister,
 		logger:    logger,
+		client:    client,
 	}
 }
 
@@ -43,6 +49,7 @@ func (csp *csvSourceProvider) Sources(namespaces ...string) map[cache.SourceKey]
 			csvLister: csp.csvLister.ClusterServiceVersions(namespace),
 			subLister: csp.subLister.Subscriptions(namespace),
 			logger:    csp.logger,
+			client:    csp.client,
 		}
 	}
 	return result
@@ -52,6 +59,7 @@ type csvSource struct {
 	key       cache.SourceKey
 	csvLister v1alpha1listers.ClusterServiceVersionNamespaceLister
 	subLister v1alpha1listers.SubscriptionNamespaceLister
+	client    client.Client
 	logger    logrus.StdLogger
 }
 
@@ -76,6 +84,36 @@ func (s *csvSource) Snapshot(ctx context.Context) (*cache.Snapshot, error) {
 			}
 		}
 	}
+
+	csvBundleInstances := make(map[*v1alpha1.ClusterServiceVersion]*kuberpakv1alpha1.BundleInstance)
+	bis := &kuberpakv1alpha1.BundleInstanceList{}
+	if err := s.client.List(ctx, bis); err != nil {
+		return nil, fmt.Errorf("failed to list the bundleinstances in the cluster: %w", err)
+	}
+	for _, bi := range bis.Items {
+		bundle := &kuberpakv1alpha1.Bundle{}
+		if err := s.client.Get(ctx, types.NamespacedName{Name: bi.Spec.BundleName}, bundle); err != nil {
+			return nil, fmt.Errorf("failed to find the %s bundle referenced by the %s bundleinstance: %v", bi.Spec.BundleName, bi.GetName(), err)
+		}
+		for _, csv := range csvs {
+			for _, obj := range bundle.Status.Info.Objects {
+				if obj.Kind != "ClusterServiceVersion" {
+					continue
+				}
+				if obj.Name != csv.Name {
+					continue
+				}
+				s.logger.Printf("found the %s BI that specifies the %s bundle that specifies the %s CSV", bi.GetName(), bi.Spec.BundleName, csv.GetName())
+				csvBundleInstances[csv] = &bi
+				break
+			}
+		}
+	}
+
+	// TODO(tflannag): Filter out CSVs without BundleInstances
+	// - Need a way to identify which BundleInstance is monitoring this namespace (e.g. metadata.Name, metadata.Annotation, $something_else)
+	// - Investigate that BundleInstance's spec.Bundle
+	// - Query for that Bundle and check whether the .status.info.objects matches the CSV (need to verify GVK as well)
 
 	var csvsMissingProperties []*v1alpha1.ClusterServiceVersion
 	var entries []*cache.Entry
@@ -104,7 +142,8 @@ func (s *csvSource) Snapshot(ctx context.Context) (*cache.Snapshot, error) {
 		}
 
 		entry.SourceInfo = &cache.OperatorSourceInfo{
-			Catalog:      s.key,
+			Catalog: s.key,
+			// TODO: we may need to add guardrails around this
 			Subscription: csvSubscriptions[csv],
 		}
 		// Try to determine source package name from properties and add to SourceInfo.
