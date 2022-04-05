@@ -240,4 +240,6 @@ replace (
 	// controller runtime
 	github.com/openshift/api => github.com/openshift/api v0.0.0-20211014063134-be2a7fb8aa44
 	github.com/openshift/client-go => github.com/openshift/client-go v0.0.0-20200326155132-2a6cd50aedd0 // release-4.5
+	// TODO(fail-forward): Remove when api changes are released
+	github.com/operator-framework/api => ../api
 )
