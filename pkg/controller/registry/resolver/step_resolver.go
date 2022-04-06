@@ -9,7 +9,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 
+	v1 "github.com/operator-framework/api/pkg/operators/v1"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/clientset/versioned"
 	v1alpha1listers "github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/listers/operators/v1alpha1"
@@ -84,14 +86,54 @@ func NewOperatorStepResolver(lister operatorlister.OperatorLister, client versio
 	return stepResolver
 }
 
+// replacementChainFailed returns true if the latest entry in a chain of operators is in the failed state.
+func replacementChainFailed(csv *v1alpha1.ClusterServiceVersion, csvToReplacement map[string]*v1alpha1.ClusterServiceVersion) bool {
+	if csv == nil {
+		return false
+	}
+	if csv.Status.Phase == v1alpha1.CSVPhaseFailed {
+		return true
+	}
+	return replacementChainFailed(csvToReplacement[csv.GetName()], csvToReplacement)
+}
+
 func (r *OperatorStepResolver) ResolveSteps(namespace string) ([]*v1alpha1.Step, []v1alpha1.BundleLookup, []*v1alpha1.Subscription, error) {
 	subs, err := r.listSubscriptions(namespace)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
+	var omittedCSVs []cache.Predicate
+	og, err := r.client.OperatorsV1().OperatorGroups(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if len(og.Items) != 1 {
+		return nil, nil, nil, fmt.Errorf("Too many operatorGroups in namespace %s", namespace)
+	}
+	if og.Items[0].UpgradeStrategy() == v1.UnsafeFailForwardUpgradeStrategy {
+		csvs, err := r.csvLister.ClusterServiceVersions(namespace).List(labels.Everything())
+		if err != nil {
+			return nil, nil, nil, err
+		}
+
+		replacementMapping := map[string]*v1alpha1.ClusterServiceVersion{}
+		for _, csv := range csvs {
+			if csv.Spec.Replaces != "" {
+				replacementMapping[csv.Spec.Replaces] = csv
+			}
+		}
+
+		for i := range csvs {
+			if !csvs[i].IsCopied() {
+				if csvs[i].Status.Phase == v1alpha1.CSVPhaseReplacing && replacementChainFailed(csvs[i], replacementMapping) {
+					omittedCSVs = append(omittedCSVs, cache.Not(cache.CSVNamePredicate(csvs[i].GetName())))
+				}
+			}
+		}
+	}
 	namespaces := []string{namespace, r.globalCatalogNamespace}
-	operators, err := r.resolver.Resolve(namespaces, subs)
+	operators, err := r.resolver.Resolve(namespaces, subs, omittedCSVs...)
 	if err != nil {
 		return nil, nil, nil, err
 	}

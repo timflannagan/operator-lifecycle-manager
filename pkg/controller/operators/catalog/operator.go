@@ -42,6 +42,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 
 	"github.com/operator-framework/api/pkg/operators/reference"
+	v1 "github.com/operator-framework/api/pkg/operators/v1"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/clientset/versioned"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/informers/externalversions"
@@ -903,6 +904,17 @@ func (o *Operator) syncResolvingNamespace(obj interface{}) error {
 		return err
 	}
 
+	ogs, err := o.lister.OperatorsV1().OperatorGroupLister().OperatorGroups(namespace).List(labels.Everything())
+	if err != nil {
+		logger.WithError(err).Debug("couldn't list operatorGroups")
+		return err
+	}
+	if len(ogs) != 1 {
+		logger.WithError(err).Debug("Found %d operatorGroups, expected 1", len(ogs))
+		return err
+	}
+	failForwardEnabled := ogs[0].UpgradeStrategy() == v1.UnsafeFailForwardUpgradeStrategy
+
 	// TODO: parallel
 	maxGeneration := 0
 	subscriptionUpdated := false
@@ -919,7 +931,7 @@ func (o *Operator) syncResolvingNamespace(obj interface{}) error {
 		}
 
 		// ensure the installplan reference is correct
-		sub, changedIP, err := o.ensureSubscriptionInstallPlanState(logger, sub)
+		sub, changedIP, err := o.ensureSubscriptionInstallPlanState(logger, sub, failForwardEnabled)
 		if err != nil {
 			logger.Debugf("error ensuring installplan state: %v", err)
 			return err
@@ -1075,7 +1087,7 @@ func (o *Operator) nothingToUpdate(logger *logrus.Entry, sub *v1alpha1.Subscript
 	return false
 }
 
-func (o *Operator) ensureSubscriptionInstallPlanState(logger *logrus.Entry, sub *v1alpha1.Subscription) (*v1alpha1.Subscription, bool, error) {
+func (o *Operator) ensureSubscriptionInstallPlanState(logger *logrus.Entry, sub *v1alpha1.Subscription, failForwardEnabled bool) (*v1alpha1.Subscription, bool, error) {
 	if sub.Status.InstallPlanRef != nil || sub.Status.Install != nil {
 		return sub, false, nil
 	}
@@ -1105,6 +1117,10 @@ func (o *Operator) ensureSubscriptionInstallPlanState(logger *logrus.Entry, sub 
 	out.Status.InstallPlanRef = ref
 	out.Status.Install = v1alpha1.NewInstallPlanReference(ref)
 	out.Status.State = v1alpha1.SubscriptionStateUpgradePending
+	// TODO(fail-forward): Decide if this should be default behavior.
+	if failForwardEnabled && ip.Status.Phase == v1alpha1.InstallPlanPhaseFailed {
+		out.Status.State = v1alpha1.SubscriptionStateFailed
+	}
 	out.Status.CurrentCSV = out.Spec.StartingCSV
 	out.Status.LastUpdated = o.now()
 
@@ -1121,6 +1137,12 @@ func (o *Operator) ensureSubscriptionCSVState(logger *logrus.Entry, sub *v1alpha
 	if err != nil {
 		logger.WithError(err).WithField("currentCSV", sub.Status.CurrentCSV).Debug("error fetching csv listed in subscription status")
 		out.Status.State = v1alpha1.SubscriptionStateUpgradePending
+		ip, err := o.client.OperatorsV1alpha1().InstallPlans(sub.GetNamespace()).Get(context.TODO(), sub.Status.InstallPlanRef.Name, metav1.GetOptions{})
+		if err != nil {
+			logger.WithError(err).WithField("currentCSV", sub.Status.CurrentCSV).Debug("error fetching installplan listed in subscription status")
+		} else if ip.Status.Phase == v1alpha1.InstallPlanPhaseFailed {
+			out.Status.State = v1alpha1.SubscriptionStateFailed
+		}
 	} else {
 		out.Status.State = v1alpha1.SubscriptionStateAtLatest
 		out.Status.InstalledCSV = sub.Status.CurrentCSV

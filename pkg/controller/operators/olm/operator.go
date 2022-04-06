@@ -30,6 +30,7 @@ import (
 	kagg "k8s.io/kube-aggregator/pkg/client/informers/externalversions"
 
 	operatorsv1 "github.com/operator-framework/api/pkg/operators/v1"
+	v1 "github.com/operator-framework/api/pkg/operators/v1"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/clientset/versioned"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/informers/externalversions"
@@ -1996,6 +1997,16 @@ func (a *Operator) transitionCSVState(in v1alpha1.ClusterServiceVersion) (out *v
 		}
 
 	case v1alpha1.CSVPhaseFailed:
+		// TODO(fail-forward): If the csv allows fail forward
+		// Transition to replacing if FailForward is enabled, a CSV exists that replaces the operator, and the operator being replaced supports failing forward.
+		if operatorGroup.UpgradeStrategy() == v1.UnsafeFailForwardUpgradeStrategy {
+			if replacement := a.isBeingReplaced(out, a.csvSet(out.GetNamespace(), v1alpha1.CSVPhaseAny)); replacement != nil {
+				msg := fmt.Sprintf("%s csv being replaced by csv: %s", out.Status.Phase, replacement.GetName())
+				out.SetPhaseWithEvent(v1alpha1.CSVPhaseReplacing, v1alpha1.CSVReasonBeingReplaced, msg, a.now(), a.recorder)
+				metrics.CSVUpgradeCount.Inc()
+				return
+			}
+		}
 		installer, strategy := a.parseStrategiesAndUpdateStatus(out)
 		if strategy == nil {
 			return
@@ -2065,7 +2076,9 @@ func (a *Operator) transitionCSVState(in v1alpha1.ClusterServiceVersion) (out *v
 			out.SetPhaseWithEvent(v1alpha1.CSVPhasePending, v1alpha1.CSVReasonNeedsReinstall, "calculated deployment install is bad", now, a.recorder)
 			return
 		}
-		if installErr := a.updateInstallStatus(out, installer, strategy, v1alpha1.CSVPhasePending, v1alpha1.CSVReasonNeedsReinstall); installErr != nil {
+		// TODO(fail-forward): Place CSVs with invalid Deployments names in perma-failed state
+		// Hack below addresses this for now.
+		if installErr := a.updateInstallStatus(out, installer, strategy, v1alpha1.CSVPhaseFailed, v1alpha1.CSVReasonNeedsReinstall); installErr != nil {
 			// Re-sync if kube-apiserver was unavailable
 			if apierrors.IsServiceUnavailable(installErr) {
 				logger.WithError(installErr).Info("could not update install status")
@@ -2087,7 +2100,15 @@ func (a *Operator) transitionCSVState(in v1alpha1.ClusterServiceVersion) (out *v
 		}
 
 		// If there is a succeeded replacement, mark this for deletion
-		if next := a.isBeingReplaced(out, a.csvSet(out.GetNamespace(), v1alpha1.CSVPhaseAny)); next != nil {
+		next := a.isBeingReplaced(out, a.csvSet(out.GetNamespace(), v1alpha1.CSVPhaseAny))
+		if operatorGroup.UpgradeStrategy() == v1.UnsafeFailForwardUpgradeStrategy {
+			tmp := next
+			for tmp != nil {
+				next = tmp
+				tmp = a.isBeingReplaced(next, a.csvSet(next.GetNamespace(), v1alpha1.CSVPhaseAny))
+			}
+		}
+		if next != nil {
 			if next.Status.Phase == v1alpha1.CSVPhaseSucceeded {
 				out.SetPhaseWithEvent(v1alpha1.CSVPhaseDeleting, v1alpha1.CSVReasonReplaced, "has been replaced by a newer ClusterServiceVersion that has successfully installed.", now, a.recorder)
 			} else {
