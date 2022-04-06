@@ -744,17 +744,15 @@ func createConfigMapForCatalogData(
 	return createdConfigMap, buildConfigMapCleanupFunc(c, namespace, createdConfigMap)
 }
 
-func createV1CRDConfigMapForCatalogData(
-	t GinkgoTInterface,
+func configMapForCatalogData(t GinkgoTInterface,
 	c operatorclient.ClientInterface,
-	name,
+	configMapName,
 	namespace string,
 	manifests []registry.PackageManifest,
 	crds []apiextensionsv1.CustomResourceDefinition,
 	csvs []operatorsv1alpha1.ClusterServiceVersion,
-) (*corev1.ConfigMap, cleanupFunc) {
+) *corev1.ConfigMap {
 	// Create a config map containing the PackageManifests and CSVs
-	configMapName := fmt.Sprintf("%s-configmap", name)
 	catalogConfigMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      configMapName,
@@ -791,12 +789,42 @@ func createV1CRDConfigMapForCatalogData(
 		require.NoError(t, err)
 		catalogConfigMap.Data[registry.ConfigMapCSVName] = string(csvsRaw)
 	}
+	return catalogConfigMap
+}
 
+func createV1CRDConfigMapForCatalogData(
+	t GinkgoTInterface,
+	c operatorclient.ClientInterface,
+	name,
+	namespace string,
+	manifests []registry.PackageManifest,
+	crds []apiextensionsv1.CustomResourceDefinition,
+	csvs []operatorsv1alpha1.ClusterServiceVersion,
+) (*corev1.ConfigMap, cleanupFunc) {
+	configMapName := fmt.Sprintf("%s-configmap", name)
+	catalogConfigMap := configMapForCatalogData(t, c, configMapName, namespace, manifests, crds, csvs)
 	createdConfigMap, err := c.KubernetesInterface().CoreV1().ConfigMaps(namespace).Create(context.Background(), catalogConfigMap, metav1.CreateOptions{})
 	if err != nil && !apierrors.IsAlreadyExists(err) {
 		require.NoError(t, err)
 	}
 	return createdConfigMap, buildConfigMapCleanupFunc(c, namespace, createdConfigMap)
+}
+
+func updateV1CRDConfigMapForCatalogData(
+	t GinkgoTInterface,
+	c operatorclient.ClientInterface,
+	configMapName,
+	namespace string,
+	manifests []registry.PackageManifest,
+	crds []apiextensionsv1.CustomResourceDefinition,
+	csvs []operatorsv1alpha1.ClusterServiceVersion,
+) (*corev1.ConfigMap, cleanupFunc) {
+	catalogConfigMap := configMapForCatalogData(t, c, configMapName, namespace, manifests, crds, csvs)
+	updatedConfigMap, err := c.KubernetesInterface().CoreV1().ConfigMaps(namespace).Update(context.Background(), catalogConfigMap, metav1.UpdateOptions{})
+	if err != nil {
+		require.NoError(t, err)
+	}
+	return updatedConfigMap, buildConfigMapCleanupFunc(c, namespace, updatedConfigMap)
 }
 
 func serializeCRD(crd apiextensions.CustomResourceDefinition) string {

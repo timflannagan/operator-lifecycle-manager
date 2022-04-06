@@ -1043,6 +1043,9 @@ func newV1CRD(plural string) apiextensionsv1.CustomResourceDefinition {
 	var min float64 = 2
 	var max float64 = 256
 	crd := apiextensionsv1.CustomResourceDefinition{
+		TypeMeta: metav1.TypeMeta{
+			Kind: "CustomResourceDefinition",
+		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: plural + ".cluster.com",
 		},

@@ -95,6 +95,11 @@ var _ = BeforeSuite(func() {
 				Name:      "opgroup",
 				Namespace: testNamespace,
 			},
+			Spec:   operatorsv1.OperatorGroupSpec{
+				UpgradeStrategy: operatorsv1.UpgradeStrategy{
+					Name: operatorsv1.DefaultUpgradeStrategy,
+				},
+			},
 		}
 		Expect(ctx.Ctx().Client().Create(context.TODO(), &og)).To(Succeed())
 	}

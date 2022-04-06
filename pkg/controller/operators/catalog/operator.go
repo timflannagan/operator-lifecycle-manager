@@ -904,16 +904,19 @@ func (o *Operator) syncResolvingNamespace(obj interface{}) error {
 		return err
 	}
 
-	ogs, err := o.lister.OperatorsV1().OperatorGroupLister().OperatorGroups(namespace).List(labels.Everything())
+	ogs, err := o.client.OperatorsV1().OperatorGroups(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		logger.WithError(err).Debug("couldn't list operatorGroups")
 		return err
 	}
-	if len(ogs) != 1 {
-		logger.WithError(err).Debug("Found %d operatorGroups, expected 1", len(ogs))
+	if len(ogs.Items) != 1 {
+		logger.WithError(err).Debug("Found %d operatorGroups, expected 1", len(ogs.Items))
 		return err
 	}
-	failForwardEnabled := ogs[0].UpgradeStrategy() == v1.UnsafeFailForwardUpgradeStrategy
+	var failForwardEnabled bool
+	if ogs.Items[0].UpgradeStrategy() == v1.UnsafeFailForwardUpgradeStrategy {
+		failForwardEnabled = true
+	}
 
 	// TODO: parallel
 	maxGeneration := 0
