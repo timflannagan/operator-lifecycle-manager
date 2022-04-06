@@ -251,6 +251,9 @@ func newOperatorGroupWithServiceAccount(client versioned.Interface, namespace, n
 				namespace,
 			},
 			ServiceAccountName: serviceAccountName,
+			UpgradeStrategy: v1.UpgradeStrategy{
+				Name: v1.DefaultUpgradeStrategy,
+			},
 		},
 	}
 
