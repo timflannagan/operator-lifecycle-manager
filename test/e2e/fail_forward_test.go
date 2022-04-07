@@ -14,6 +14,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
 	operatorsv1 "github.com/operator-framework/api/pkg/operators/v1"
@@ -31,6 +32,7 @@ var _ = Describe("Fail Forward with toggle", func() {
 	var (
 		kubeclient operatorclient.ClientInterface
 		crclient   versioned.Interface
+		client     client.Client
 		testOG     string
 		cleanupNS  cleanupFunc
 	)
@@ -109,13 +111,15 @@ var _ = Describe("Fail Forward with toggle", func() {
 			}
 
 			if step.entry != nil {
-				_, err := addEntryToCatalog(context.Background(), kubeclient, crclient, *step.entry, namespace, catSrcName, crds)
+				_, err := addEntryToCatalog(context.Background(), client, kubeclient, crclient, *step.entry, namespace, catSrcName, crds)
 				Expect(err).Should(BeNil())
 			}
 
 			if step.expectedInstallPlanPhase != nil {
 				// Wait for InstallPlan generation
-				subscription, err := fetchSubscription(crclient, namespace, subscriptionName, subscriptionHasInstallPlanDifferentChecker(currentInstallPlanName))
+				subscription, err := fetchSubscription(crclient, namespace, subscriptionName, func(subscription *operatorsv1alpha1.Subscription) bool {
+					return subscriptionHasInstallPlanChecker(subscription)
+				})
 				Expect(err).Should(BeNil())
 
 				currentInstallPlanName = subscription.Status.InstallPlanRef.Name
@@ -186,6 +190,8 @@ var _ = Describe("Fail Forward with toggle", func() {
 	BeforeEach(func() {
 		kubeclient = newKubeClient()
 		crclient = newCRClient()
+		client = ctx.Ctx().Client()
+
 		testNamespace = genName("ff-ns-")
 		_, cleanupNS = newNamespace(kubeclient, testNamespace)
 
@@ -289,7 +295,7 @@ var (
 	c = ctx.Ctx()
 )
 
-func addEntryToCatalog(ctx context.Context, kubeclient operatorclient.ClientInterface, crclient versioned.Interface, entry cache.Entry, namespace, catsrc string, crds []apiextensionsv1.CustomResourceDefinition) (cleanupFunc, error) {
+func addEntryToCatalog(ctx context.Context, c client.Client, kubeclient operatorclient.ClientInterface, crclient versioned.Interface, entry cache.Entry, namespace, catsrc string, crds []apiextensionsv1.CustomResourceDefinition) (cleanupFunc, error) {
 	csv := csvForEntry(namespace, entry, crds)
 
 	catalogSource, err := crclient.OperatorsV1alpha1().CatalogSources(namespace).Get(ctx, catsrc, metav1.GetOptions{})
@@ -297,11 +303,11 @@ func addEntryToCatalog(ctx context.Context, kubeclient operatorclient.ClientInte
 		return nil, err
 	}
 	if apierrors.IsNotFound(err) {
-		c.Logf("creating the %s/%s internal catalogsource", catsrc, namespace)
+		// c.Logf("creating the %s/%s internal catalogsource", catsrc, namespace)
 		_, cleanup := createV1CRDInternalCatalogSource(GinkgoT(), kubeclient, crclient, catsrc, namespace, []registry.PackageManifest{{
 			PackageName:        entry.Package(),
 			Channels:           []registry.PackageChannel{{Name: entry.Channel(), CurrentCSVName: entry.Name}},
-			DefaultChannelName: entry.Name,
+			DefaultChannelName: stableChannel,
 		}},
 			crds,
 			[]operatorsv1alpha1.ClusterServiceVersion{*csv},
@@ -309,7 +315,7 @@ func addEntryToCatalog(ctx context.Context, kubeclient operatorclient.ClientInte
 		return cleanup, nil
 	}
 
-	c.Logf("updating the existing %s/%s with a new catalog entry", catsrc, namespace)
+	// c.Logf("updating the existing %s/%s with a new catalog entry", catsrc, namespace)
 	// merge csvs, crds and manifests with existing ones
 	configMap, err := kubeclient.GetConfigMap(namespace, catalogSource.Spec.ConfigMap)
 	Expect(err).Should(BeNil())
@@ -355,12 +361,39 @@ func addEntryToCatalog(ctx context.Context, kubeclient operatorclient.ClientInte
 		manifests = append(manifests, registry.PackageManifest{
 			PackageName:        entry.Package(),
 			Channels:           []registry.PackageChannel{{Name: entry.Channel(), CurrentCSVName: entry.Name}},
-			DefaultChannelName: entry.Name,
+			DefaultChannelName: stableChannel,
 		})
 	}
 
+	// TODO: add code for recycling the registry pod
+	// TODO: manually approve the newly generated InstallPlan resource
+
+	// confMap, _ := createV1CRDConfigMapForCatalogData(GinkgoT(), kubeclient, genName(catsrc), namespace, manifests, allCRDs, allCSVs)
+	// catalogSource.Spec.ConfigMap = confMap.Name
+	// _, err = crclient.OperatorsV1alpha1().CatalogSources(namespace).Update(ctx, catalogSource, metav1.UpdateOptions{})
+	// Expect(err).Should(BeNil())
+
+	// confMap, _ := createV1CRDConfigMapForCatalogData(GinkgoT(), kubeclient, catalogSource.Name, catalogSource.Namespace, manifests, allCRDs, allCSVs)
+	// Eventually(func() error {
+	// 	cs, err := crclient.OperatorsV1alpha1().CatalogSources(namespace).Get(ctx, catalogSource.Name, metav1.GetOptions{})
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	cs.Spec.ConfigMap = confMap.Name
+	// 	_, err = crclient.OperatorsV1alpha1().CatalogSources(namespace).Update(ctx, cs, metav1.UpdateOptions{})
+	// 	return err
+	// })
+
 	_, cleanup := updateV1CRDConfigMapForCatalogData(GinkgoT(), kubeclient, catalogSource.Spec.ConfigMap, namespace, manifests, allCRDs, allCSVs)
-	_, err = crclient.OperatorsV1alpha1().CatalogSources(namespace).Update(ctx, catalogSource, metav1.UpdateOptions{})
+
+	// podList := &corev1.PodList{}
+	// if err := c.List(ctx, podList, &client.ListOptions{
+	// 	LabelSelector: labels.NewSelector(),
+	// })
+
+	// olm.catalogSource=ff-operator-hhb7g-catsrc-zrzg2,olm.configMapResourceVersion=127362,olm.pod-spec-hash=6bb8976b7b
+	// TODO: delete the registry pod
+
 	return cleanup, err
 }
 

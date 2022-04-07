@@ -910,7 +910,7 @@ func (o *Operator) syncResolvingNamespace(obj interface{}) error {
 		return err
 	}
 	if len(ogs.Items) != 1 {
-		logger.WithError(err).Debug("Found %d operatorGroups, expected 1", len(ogs.Items))
+		logger.WithError(err).Debugf("Found %d operatorGroups, expected 1", len(ogs.Items))
 		return err
 	}
 	og := ogs.Items[0]
