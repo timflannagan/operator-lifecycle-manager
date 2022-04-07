@@ -48,7 +48,7 @@ type OperatorGroupSpec struct {
 
 	// +optional
 	// +kubebuilder:default={name:Default}
-	UpgradeStrategy UpgradeStrategy `json:"upgradeStrategy"`
+	UpgradeStrategy *UpgradeStrategy `json:"upgradeStrategy"`
 }
 
 // UpgradeStrategy defines the upgrade strategy for operators in the namespace.
@@ -72,7 +72,7 @@ type UpgradeStrategy struct {
 	// +kubebuilder:validation:Enum=Default;UnsafeFailForward
 	// +kubebuilder:default=Default
 	// +optional
-	Name upgradeStrategyName `json:"name"`
+	Name string `json:"name"`
 }
 
 // OperatorGroupStatus is the status for an OperatorGroupResource.
@@ -122,12 +122,16 @@ type OperatorGroupList struct {
 type upgradeStrategyName string
 
 const (
-	DefaultUpgradeStrategy           upgradeStrategyName = "Default"
-	UnsafeFailForwardUpgradeStrategy upgradeStrategyName = "UnsafeFailForward"
+	DefaultUpgradeStrategy           = "Default"
+	UnsafeFailForwardUpgradeStrategy = "UnsafeFailForward"
 )
 
 // IsServiceAccountSpecified returns true if the spec has a service account name specified.
-func (o *OperatorGroup) UpgradeStrategy() upgradeStrategyName {
+func (o *OperatorGroup) UpgradeStrategy() string {
+	if o.Spec.UpgradeStrategy == nil {
+		return DefaultUpgradeStrategy
+	}
+
 	strategyName := o.Spec.UpgradeStrategy.Name
 	switch {
 	case strategyName == UnsafeFailForwardUpgradeStrategy:

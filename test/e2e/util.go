@@ -775,6 +775,7 @@ func configMapForCatalogData(t GinkgoTInterface,
 	if crds != nil {
 		crdStrings := []string{}
 		for _, crd := range crds {
+			ctx.Ctx().Logf("(configMapForCatalogData) CRD objectmeta: %+v", crd.TypeMeta)
 			crdStrings = append(crdStrings, serializeV1CRD(t, &crd))
 		}
 		var err error
@@ -860,6 +861,9 @@ func serializeV1CRD(t GinkgoTInterface, crd *apiextensionsv1.CustomResourceDefin
 	// create an object manifest
 	var manifest bytes.Buffer
 	require.NoError(t, serializer.Encode(crd, &manifest))
+
+	ctx.Ctx().Logf("CRD kind: %v\n%s", crd.TypeMeta, manifest.String())
+
 	return manifest.String()
 }
 
