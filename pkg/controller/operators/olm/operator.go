@@ -1996,6 +1996,15 @@ func (a *Operator) transitionCSVState(in v1alpha1.ClusterServiceVersion) (out *v
 		}
 
 	case v1alpha1.CSVPhaseFailed:
+		// Transition to the replacing phase if FailForward is enabled and a CSV exists that replaces the operator.
+		if operatorGroup.UpgradeStrategy() == operatorsv1.UnsafeFailForwardUpgradeStrategy {
+			if replacement := a.isBeingReplaced(out, a.csvSet(out.GetNamespace(), v1alpha1.CSVPhaseAny)); replacement != nil {
+				msg := fmt.Sprintf("Fail Forward is enabled, allowing %s csv to be replaced by csv: %s", out.Status.Phase, replacement.GetName())
+				out.SetPhaseWithEvent(v1alpha1.CSVPhaseReplacing, v1alpha1.CSVReasonBeingReplaced, msg, a.now(), a.recorder)
+				metrics.CSVUpgradeCount.Inc()
+				return
+			}
+		}
 		installer, strategy := a.parseStrategiesAndUpdateStatus(out)
 		if strategy == nil {
 			return
@@ -2087,7 +2096,16 @@ func (a *Operator) transitionCSVState(in v1alpha1.ClusterServiceVersion) (out *v
 		}
 
 		// If there is a succeeded replacement, mark this for deletion
-		if next := a.isBeingReplaced(out, a.csvSet(out.GetNamespace(), v1alpha1.CSVPhaseAny)); next != nil {
+		next := a.isBeingReplaced(out, a.csvSet(out.GetNamespace(), v1alpha1.CSVPhaseAny))
+		// Get the newest CSV in the replacement chain if fail forward upgrades are enabled.
+		if operatorGroup.UpgradeStrategy() == operatorsv1.UnsafeFailForwardUpgradeStrategy {
+			tmp := next
+			for tmp != nil {
+				next = tmp
+				tmp = a.isBeingReplaced(next, a.csvSet(next.GetNamespace(), v1alpha1.CSVPhaseAny))
+			}
+		}
+		if next != nil {
 			if next.Status.Phase == v1alpha1.CSVPhaseSucceeded {
 				out.SetPhaseWithEvent(v1alpha1.CSVPhaseDeleting, v1alpha1.CSVReasonReplaced, "has been replaced by a newer ClusterServiceVersion that has successfully installed.", now, a.recorder)
 			} else {

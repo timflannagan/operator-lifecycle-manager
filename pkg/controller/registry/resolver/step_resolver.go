@@ -9,7 +9,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 
+	operatorsv1 "github.com/operator-framework/api/pkg/operators/v1"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/clientset/versioned"
 	v1alpha1listers "github.com/operator-framework/operator-lifecycle-manager/pkg/api/client/listers/operators/v1alpha1"
@@ -84,14 +86,91 @@ func NewOperatorStepResolver(lister operatorlister.OperatorLister, client versio
 	return stepResolver
 }
 
+// isReplacementChainThatEndsInFailure returns true if the last entry in a chain of operators is in the failed phase and
+// all other entries are in the replacing phase.
+func isReplacementChainThatEndsInFailure(csv *v1alpha1.ClusterServiceVersion, csvToReplacement map[string]*v1alpha1.ClusterServiceVersion) bool {
+	if csv == nil {
+		return false
+	}
+	itr := csv
+	visited := map[string]struct{}{}
+	for {
+		// Prevent infinite replacing chains by checking if this
+		// CSV has been visited before.
+		visited[itr.GetName()] = struct{}{}
+
+		// Check for a replacement
+		next, ok := csvToReplacement[itr.GetName()]
+		if !ok {
+			break
+		}
+
+		// Check if we have visited the CSV before
+		if _, ok := visited[next.GetName()]; ok {
+			break
+		}
+
+		// Since a replacement exists and hasn't been visited, make sure the
+		// Current CSV is in the replacing phase.
+		if itr.Status.Phase != v1alpha1.CSVPhaseReplacing {
+			return false
+		}
+
+		// Move iterator along replacement chain.
+		itr = next
+	}
+	return itr.Status.Phase == v1alpha1.CSVPhaseFailed
+}
+
+func (r *OperatorStepResolver) CachePredicates(namespace string) ([]cache.Predicate, error) {
+	predicates := []cache.Predicate{}
+
+	operatorGroupList, err := r.client.OperatorsV1().OperatorGroups(namespace).List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		return predicates, err
+	}
+
+	if len(operatorGroupList.Items) == 1 && operatorGroupList.Items[0].UpgradeStrategy() == operatorsv1.UnsafeFailForwardUpgradeStrategy {
+		csvs, err := r.csvLister.ClusterServiceVersions(namespace).List(labels.Everything())
+		if err != nil {
+			return predicates, err
+		}
+
+		replacementMapping := map[string]*v1alpha1.ClusterServiceVersion{}
+		for _, csv := range csvs {
+			if csv.Spec.Replaces != "" {
+				replacementMapping[csv.Spec.Replaces] = csv
+			}
+		}
+
+		for i := range csvs {
+			if !csvs[i].IsCopied() {
+				if csvs[i].Status.Phase == v1alpha1.CSVPhaseReplacing && isReplacementChainThatEndsInFailure(csvs[i], replacementMapping) {
+					predicates = append(predicates, cache.Not(cache.CSVNamePredicate(csvs[i].GetName())))
+				}
+			}
+		}
+	}
+	return predicates, nil
+}
+
 func (r *OperatorStepResolver) ResolveSteps(namespace string) ([]*v1alpha1.Step, []v1alpha1.BundleLookup, []*v1alpha1.Subscription, error) {
 	subs, err := r.listSubscriptions(namespace)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 
+	// The resolver considers the initial set of CSVs in the namespace by their appearance
+	// in the catalog cache. In order to support "fail forward" upgrades, we need to omit
+	// CSVs that are actively being replaced from this initial set of operators. The
+	// predicates defined here will omit these replacing CSVs from the set.
+	cachePredicates, err := r.CachePredicates(namespace)
+	if err != nil {
+		r.log.Debugf("Unable to determine CSVs to exclude: %v", err)
+	}
+
 	namespaces := []string{namespace, r.globalCatalogNamespace}
-	operators, err := r.resolver.Resolve(namespaces, subs)
+	operators, err := r.resolver.Resolve(namespaces, subs, cachePredicates...)
 	if err != nil {
 		return nil, nil, nil, err
 	}

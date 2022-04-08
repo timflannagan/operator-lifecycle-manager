@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
+	v1 "github.com/operator-framework/api/pkg/operators/v1"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/operator-framework/operator-registry/pkg/api"
 	opregistry "github.com/operator-framework/operator-registry/pkg/registry"
@@ -45,6 +46,234 @@ var (
 	Provides4 = APISet4
 	Requires4 = APISet4
 )
+
+func TestIsReplacementChainThatEndsInFailure(t *testing.T) {
+	tests := []struct {
+		name             string
+		csv              *v1alpha1.ClusterServiceVersion
+		csvToReplacement map[string]*v1alpha1.ClusterServiceVersion
+		expected         bool
+	}{
+		{
+			name:             "NilCSV",
+			csv:              nil,
+			csvToReplacement: nil,
+			expected:         false,
+		},
+		{
+			name: "OneEntryReplacementChainEndsInFailure",
+			csv: &v1alpha1.ClusterServiceVersion{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-v1",
+				},
+				Status: v1alpha1.ClusterServiceVersionStatus{
+					Phase: v1alpha1.CSVPhaseFailed,
+				},
+			},
+			csvToReplacement: nil,
+			expected:         true,
+		},
+		{
+			name: "OneEntryReplacementChainEndsInSuccess",
+			csv: &v1alpha1.ClusterServiceVersion{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-v1",
+				},
+				Status: v1alpha1.ClusterServiceVersionStatus{
+					Phase: v1alpha1.CSVPhaseSucceeded,
+				},
+			},
+			csvToReplacement: nil,
+			expected:         false,
+		},
+		{
+			name: "ReplacementChainEndsInSuccess",
+			csv: &v1alpha1.ClusterServiceVersion{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-v1",
+				},
+				Status: v1alpha1.ClusterServiceVersionStatus{
+					Phase: v1alpha1.CSVPhaseReplacing,
+				},
+			},
+			csvToReplacement: map[string]*v1alpha1.ClusterServiceVersion{
+				"foo-v1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-v2",
+					},
+					Spec: v1alpha1.ClusterServiceVersionSpec{
+						Replaces: "foo-v1",
+					},
+					Status: v1alpha1.ClusterServiceVersionStatus{
+						Phase: v1alpha1.CSVPhaseReplacing,
+					},
+				},
+				"foo-v2": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-v3",
+					},
+					Spec: v1alpha1.ClusterServiceVersionSpec{
+						Replaces: "foo-v2",
+					},
+					Status: v1alpha1.ClusterServiceVersionStatus{
+						Phase: v1alpha1.CSVPhaseSucceeded,
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "ReplacementChainEndsInFailure",
+			csv: &v1alpha1.ClusterServiceVersion{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-v1",
+				},
+				Status: v1alpha1.ClusterServiceVersionStatus{
+					Phase: v1alpha1.CSVPhaseReplacing,
+				},
+			},
+			csvToReplacement: map[string]*v1alpha1.ClusterServiceVersion{
+				"foo-v1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-v2",
+					},
+					Spec: v1alpha1.ClusterServiceVersionSpec{
+						Replaces: "foo-v1",
+					},
+					Status: v1alpha1.ClusterServiceVersionStatus{
+						Phase: v1alpha1.CSVPhaseReplacing,
+					},
+				},
+				"foo-v2": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-v3",
+					},
+					Spec: v1alpha1.ClusterServiceVersionSpec{
+						Replaces: "foo-v2",
+					},
+					Status: v1alpha1.ClusterServiceVersionStatus{
+						Phase: v1alpha1.CSVPhaseFailed,
+					},
+				},
+			},
+			expected: true,
+		},
+		{
+			name: "ReplacementChainBrokenByFailedCSVInMiddle",
+			csv: &v1alpha1.ClusterServiceVersion{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-v1",
+				},
+				Status: v1alpha1.ClusterServiceVersionStatus{
+					Phase: v1alpha1.CSVPhaseReplacing,
+				},
+			},
+			csvToReplacement: map[string]*v1alpha1.ClusterServiceVersion{
+				"foo-v1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-v2",
+					},
+					Spec: v1alpha1.ClusterServiceVersionSpec{
+						Replaces: "foo-v1",
+					},
+					Status: v1alpha1.ClusterServiceVersionStatus{
+						Phase: v1alpha1.CSVPhaseFailed,
+					},
+				},
+				"foo-v2": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-v3",
+					},
+					Spec: v1alpha1.ClusterServiceVersionSpec{
+						Replaces: "foo-v2",
+					},
+					Status: v1alpha1.ClusterServiceVersionStatus{
+						Phase: v1alpha1.CSVPhaseFailed,
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "InfiniteLoopReplacementChainEndsInSuccess",
+			csv: &v1alpha1.ClusterServiceVersion{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-v1",
+				},
+				Status: v1alpha1.ClusterServiceVersionStatus{
+					Phase: v1alpha1.CSVPhaseReplacing,
+				},
+			},
+			csvToReplacement: map[string]*v1alpha1.ClusterServiceVersion{
+				"foo-v1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-v2",
+					},
+					Spec: v1alpha1.ClusterServiceVersionSpec{
+						Replaces: "foo-v1",
+					},
+					Status: v1alpha1.ClusterServiceVersionStatus{
+						Phase: v1alpha1.CSVPhaseSucceeded,
+					},
+				},
+				"foo-v2": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-v1",
+					},
+					Spec: v1alpha1.ClusterServiceVersionSpec{
+						Replaces: "foo-v2",
+					},
+					Status: v1alpha1.ClusterServiceVersionStatus{
+						Phase: v1alpha1.CSVPhaseReplacing,
+					},
+				},
+			},
+			expected: false,
+		},
+		{
+			name: "InfiniteLoopReplacementChainEndsInFailure",
+			csv: &v1alpha1.ClusterServiceVersion{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "foo-v1",
+				},
+				Status: v1alpha1.ClusterServiceVersionStatus{
+					Phase: v1alpha1.CSVPhaseReplacing,
+				},
+			},
+			csvToReplacement: map[string]*v1alpha1.ClusterServiceVersion{
+				"foo-v1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-v2",
+					},
+					Spec: v1alpha1.ClusterServiceVersionSpec{
+						Replaces: "foo-v1",
+					},
+					Status: v1alpha1.ClusterServiceVersionStatus{
+						Phase: v1alpha1.CSVPhaseFailed,
+					},
+				},
+				"foo-v2": {
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "foo-v1",
+					},
+					Spec: v1alpha1.ClusterServiceVersionSpec{
+						Replaces: "foo-v2",
+					},
+					Status: v1alpha1.ClusterServiceVersionStatus{
+						Phase: v1alpha1.CSVPhaseReplacing,
+					},
+				},
+			},
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, isReplacementChainThatEndsInFailure(tt.csv, tt.csvToReplacement))
+		})
+	}
+}
 
 func TestInitHooks(t *testing.T) {
 	clientFake := fake.NewSimpleClientset()
@@ -89,7 +318,6 @@ func TestResolver(t *testing.T) {
 		bundlesByCatalog map[resolvercache.SourceKey][]*api.Bundle
 		out              resolverTestOut
 	}
-
 	nothing := resolverTestOut{
 		steps:   [][]*v1alpha1.Step{},
 		lookups: []v1alpha1.BundleLookup{},
@@ -826,10 +1054,155 @@ func TestResolver(t *testing.T) {
 			}},
 			out: resolverTestOut{
 				steps: [][]*v1alpha1.Step{
-					bundleSteps(bundle("a.v3", "a", "alpha", "", nil, nil, nil, nil, withVersion("1.0.0"), withSkips([]string{"a.v1"})), namespace, "a.v1", catalog),
+					bundleSteps(bundle("a.v3", "a", "alpha", "", nil, nil, nil, nil, withVersion("1.0.0")), namespace, "a.v1", catalog),
 				},
 				subs: []*v1alpha1.Subscription{
 					updatedSub(namespace, "a.v3", "a.v1", "a", "alpha", catalog),
+				},
+			},
+		},
+		{
+			name: "FailForwardDisabled/2EntryReplacementChain/NotSatisfiable",
+			clusterState: []runtime.Object{
+				existingSub(namespace, "a.v2", "a", "alpha", catalog),
+				WithPhase(existingOperator(namespace, "a.v1", "a", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseReplacing),
+				WithPhase(existingOperator(namespace, "a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
+			},
+			bundlesByCatalog: map[resolvercache.SourceKey][]*api.Bundle{catalog: {
+				bundle("a.v1", "a", "alpha", "", Provides1, nil, nil, nil, withVersion("1.0.0")),
+				bundle("a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil, withVersion("2.0.0")),
+				bundle("a.v3", "a", "alpha", "a.v2", Provides1, nil, nil, nil, withVersion("3.0.0")),
+			}},
+			out: resolverTestOut{
+				steps: [][]*v1alpha1.Step{},
+				subs:  []*v1alpha1.Subscription{},
+				errAssert: func(t *testing.T, err error) {
+					assert.IsType(t, solver.NotSatisfiable{}, err)
+					assert.Contains(t, err.Error(), "constraints not satisfiable")
+					assert.Contains(t, err.Error(), "provide k (g/v)")
+					assert.Contains(t, err.Error(), "clusterserviceversion a.v1 exists and is not referenced by a subscription")
+					assert.Contains(t, err.Error(), "subscription a-alpha requires at least one of catsrc/catsrc-namespace/alpha/a.v3 or @existing/catsrc-namespace//a.v2")
+				},
+			},
+		},
+		{
+			name: "FailForwardEnabled/2EntryReplacementChain/Satisfiable",
+			clusterState: []runtime.Object{
+				existingSub(namespace, "a.v2", "a", "alpha", catalog),
+				WithPhase(existingOperator(namespace, "a.v1", "a", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseReplacing),
+				WithPhase(existingOperator(namespace, "a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
+				newOG(namespace, "test", withUpgradeStrategy(v1.UnsafeFailForwardUpgradeStrategy)),
+			},
+			bundlesByCatalog: map[resolvercache.SourceKey][]*api.Bundle{catalog: {
+				bundle("a.v1", "a", "alpha", "", Provides1, nil, nil, nil, withVersion("1.0.0")),
+				bundle("a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil, withVersion("2.0.0")),
+				bundle("a.v3", "a", "alpha", "a.v2", Provides1, nil, nil, nil, withVersion("3.0.0")),
+			}},
+			out: resolverTestOut{
+				steps: [][]*v1alpha1.Step{
+					bundleSteps(bundle("a.v3", "a", "alpha", "a.v2", Provides1, nil, nil, nil, withVersion("3.0.0")), namespace, "a.v2", catalog),
+				},
+				subs: []*v1alpha1.Subscription{
+					updatedSub(namespace, "a.v3", "a.v2", "a", "alpha", catalog),
+				},
+			},
+		},
+		{
+			name: "FailForwardDisabled/3EntryReplacementChain/NotSatisfiable",
+			clusterState: []runtime.Object{
+				existingSub(namespace, "a.v3", "a", "alpha", catalog),
+				WithPhase(existingOperator(namespace, "a.v1", "a", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseReplacing),
+				WithPhase(existingOperator(namespace, "a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil), v1alpha1.CSVPhaseReplacing),
+				WithPhase(existingOperator(namespace, "a.v3", "a", "alpha", "a.v2", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
+			},
+			bundlesByCatalog: map[resolvercache.SourceKey][]*api.Bundle{catalog: {
+				bundle("a.v1", "a", "alpha", "", Provides1, nil, nil, nil, withVersion("1.0.0")),
+				bundle("a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil, withVersion("2.0.0")),
+				bundle("a.v3", "a", "alpha", "a.v2", Provides1, nil, nil, nil, withVersion("3.0.0")),
+				bundle("a.v4", "a", "alpha", "a.v3", Provides1, nil, nil, nil, withVersion("4.0.0")),
+			}},
+			out: resolverTestOut{
+				steps: [][]*v1alpha1.Step{},
+				subs:  []*v1alpha1.Subscription{},
+				errAssert: func(t *testing.T, err error) {
+					assert.IsType(t, solver.NotSatisfiable{}, err)
+					assert.Contains(t, err.Error(), "constraints not satisfiable")
+					assert.Contains(t, err.Error(), "provide k (g/v)")
+					assert.Contains(t, err.Error(), "exists and is not referenced by a subscription")
+				},
+			},
+		},
+		{
+			name: "FailForwardEnabled/3EntryReplacementChain/Satisfiable",
+			clusterState: []runtime.Object{
+				existingSub(namespace, "a.v3", "a", "alpha", catalog),
+				WithPhase(existingOperator(namespace, "a.v1", "a", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseReplacing),
+				WithPhase(existingOperator(namespace, "a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil), v1alpha1.CSVPhaseReplacing),
+				WithPhase(existingOperator(namespace, "a.v3", "a", "alpha", "a.v2", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
+				newOG(namespace, "test", withUpgradeStrategy(v1.UnsafeFailForwardUpgradeStrategy)),
+			},
+			bundlesByCatalog: map[resolvercache.SourceKey][]*api.Bundle{catalog: {
+				bundle("a.v1", "a", "alpha", "", Provides1, nil, nil, nil, withVersion("1.0.0")),
+				bundle("a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil, withVersion("2.0.0")),
+				bundle("a.v3", "a", "alpha", "a.v2", Provides1, nil, nil, nil, withVersion("3.0.0")),
+				bundle("a.v4", "a", "alpha", "a.v3", Provides1, nil, nil, nil, withVersion("4.0.0")),
+			}},
+			out: resolverTestOut{
+				steps: [][]*v1alpha1.Step{
+					bundleSteps(bundle("a.v4", "a", "alpha", "a.v3", Provides1, nil, nil, nil, withVersion("4.0.0")), namespace, "a.v3", catalog),
+				},
+				subs: []*v1alpha1.Subscription{
+					updatedSub(namespace, "a.v4", "a.v3", "a", "alpha", catalog),
+				},
+			},
+		},
+		{
+			name: "FailForwardEnabled/3EntryReplacementChain/ReplacementChainBroken/NotSatisfiable",
+			clusterState: []runtime.Object{
+				existingSub(namespace, "a.v3", "a", "alpha", catalog),
+				WithPhase(existingOperator(namespace, "a.v1", "a", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
+				WithPhase(existingOperator(namespace, "a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
+				WithPhase(existingOperator(namespace, "a.v3", "a", "alpha", "a.v2", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
+				newOG(namespace, "test", withUpgradeStrategy(v1.UnsafeFailForwardUpgradeStrategy)),
+			},
+			bundlesByCatalog: map[resolvercache.SourceKey][]*api.Bundle{catalog: {
+				bundle("a.v1", "a", "alpha", "", Provides1, nil, nil, nil, withVersion("1.0.0")),
+				bundle("a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil, withVersion("2.0.0")),
+				bundle("a.v3", "a", "alpha", "a.v2", Provides1, nil, nil, nil, withVersion("3.0.0")),
+				bundle("a.v4", "a", "alpha", "a.v3", Provides1, nil, nil, nil, withVersion("4.0.0")),
+			}},
+			out: resolverTestOut{
+				steps: [][]*v1alpha1.Step{},
+				subs:  []*v1alpha1.Subscription{},
+				errAssert: func(t *testing.T, err error) {
+					assert.IsType(t, solver.NotSatisfiable{}, err)
+					assert.Contains(t, err.Error(), "constraints not satisfiable")
+					assert.Contains(t, err.Error(), "provide k (g/v)")
+					assert.Contains(t, err.Error(), "exists and is not referenced by a subscription")
+				},
+			},
+		},
+		{
+			name: "FailForwardEnabled/MultipleReplaces/ReplacementChainEndsInFailure/ConflictingProvider/NoUpgrade",
+			clusterState: []runtime.Object{
+				existingSub(namespace, "a.v1", "a", "alpha", catalog),
+				WithPhase(existingOperator(namespace, "b.v1", "b", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseReplacing),
+				WithPhase(existingOperator(namespace, "a.v1", "a", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
+				newOG(namespace, "test", withUpgradeStrategy(v1.UnsafeFailForwardUpgradeStrategy)),
+			},
+			bundlesByCatalog: map[resolvercache.SourceKey][]*api.Bundle{catalog: {
+				bundle("a.v1", "a", "alpha", "", Provides1, nil, nil, nil, withVersion("1.0.0")),
+				bundle("a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil, withVersion("2.0.0")),
+				bundle("b.v1", "b", "alpha", "", Provides1, nil, nil, nil, withVersion("1.0.0")),
+			}},
+			out: resolverTestOut{
+				steps: [][]*v1alpha1.Step{},
+				subs:  []*v1alpha1.Subscription{},
+				errAssert: func(t *testing.T, err error) {
+					assert.IsType(t, solver.NotSatisfiable{}, err)
+					assert.Contains(t, err.Error(), "constraints not satisfiable")
+					assert.Contains(t, err.Error(), "provide k (g/v)")
+					assert.Contains(t, err.Error(), "clusterserviceversion b.v1 exists and is not referenced by a subscription")
 				},
 			},
 		},
@@ -900,6 +1273,11 @@ func TestResolver(t *testing.T) {
 			require.ElementsMatch(t, tt.out.subs, subs)
 		})
 	}
+}
+
+func WithPhase(csv *v1alpha1.ClusterServiceVersion, phase v1alpha1.ClusterServiceVersionPhase) *v1alpha1.ClusterServiceVersion {
+	csv.Status.Phase = phase
+	return csv
 }
 
 func TestNamespaceResolverRBAC(t *testing.T) {
@@ -1061,6 +1439,26 @@ func newSub(namespace, pkg, channel string, catalog resolvercache.SourceKey, opt
 		o(s)
 	}
 	return s
+}
+
+type ogOption func(*v1.OperatorGroup)
+
+func withUpgradeStrategy(upgradeStrategy string) ogOption {
+	return func(og *v1.OperatorGroup) {
+		og.Spec.UpgradeStrategy = upgradeStrategy
+	}
+}
+func newOG(namespace string, name string, option ...ogOption) *v1.OperatorGroup {
+	og := &v1.OperatorGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+	for _, o := range option {
+		o(og)
+	}
+	return og
 }
 
 func updatedSub(namespace, currentOperatorName, installedOperatorName, pkg, channel string, catalog resolvercache.SourceKey, option ...subOption) *v1alpha1.Subscription {
