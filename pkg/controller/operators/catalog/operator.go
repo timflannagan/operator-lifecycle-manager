@@ -884,14 +884,15 @@ func (o *Operator) syncCatalogSources(obj interface{}) (syncError error) {
 }
 
 func (o *Operator) isFailForwardEnabled(namespace string) (bool, error) {
-	ogs, err := o.lister.OperatorsV1().OperatorGroupLister().OperatorGroups(namespace).List(labels.Everything())
+	ogs, err := o.client.OperatorsV1().OperatorGroups(namespace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		return false, fmt.Errorf("couldn't list operatorGroups, assuming default upgradeStrategy")
+		return false, fmt.Errorf("couldn't list operatorGroups, assuming default upgradeStrategy: %v", err)
 	}
-	if len(ogs) != 1 {
-		return false, fmt.Errorf("Found %d operatorGroups, expected 1, assuming default upgradeStrategy", len(ogs))
+	if len(ogs.Items) != 1 {
+		return false, fmt.Errorf("found %d operatorGroups in the %s namespace, expected 1, assuming default upgradeStrategy", len(ogs.Items), namespace)
 	}
-	return ogs[0].UpgradeStrategy() == operatorsv1.UnsafeFailForwardUpgradeStrategy, nil
+	og := ogs.Items[0]
+	return og.UpgradeStrategy() == operatorsv1.UnsafeFailForwardUpgradeStrategy, nil
 }
 
 func (o *Operator) syncResolvingNamespace(obj interface{}) error {
@@ -911,7 +912,6 @@ func (o *Operator) syncResolvingNamespace(obj interface{}) error {
 
 	// get the set of sources that should be used for resolution and best-effort get their connections working
 	logger.Debug("resolving sources")
-
 	logger.Debug("checking if subscriptions need update")
 
 	subs, err := o.listSubscriptions(namespace)
@@ -1144,13 +1144,17 @@ func (o *Operator) ensureSubscriptionCSVState(logger *logrus.Entry, sub *v1alpha
 	_, err := o.client.OperatorsV1alpha1().ClusterServiceVersions(sub.GetNamespace()).Get(context.TODO(), sub.Status.CurrentCSV, metav1.GetOptions{})
 	out := sub.DeepCopy()
 	if err != nil {
-		logger.WithError(err).WithField("currentCSV", sub.Status.CurrentCSV).Debug("error fetching csv listed in subscription status")
+		logger.WithError(err).WithFields(logrus.Fields{
+			"currentCSV":         sub.Status.CurrentCSV,
+			"failForwardEnabled": failForwardEnabled,
+		}).Debug("error fetching csv listed in subscription status")
 		out.Status.State = v1alpha1.SubscriptionStateUpgradePending
 		if failForwardEnabled {
 			ip, err := o.client.OperatorsV1alpha1().InstallPlans(sub.GetNamespace()).Get(context.TODO(), sub.Status.InstallPlanRef.Name, metav1.GetOptions{})
 			if err != nil {
 				logger.WithError(err).WithField("currentCSV", sub.Status.CurrentCSV).Debug("error fetching installplan listed in subscription status")
 			} else if ip.Status.Phase == v1alpha1.InstallPlanPhaseFailed {
+				logger.Debug("updating subscription state to failed as the installplan has failed")
 				out.Status.State = v1alpha1.SubscriptionStateFailed
 			}
 		}
