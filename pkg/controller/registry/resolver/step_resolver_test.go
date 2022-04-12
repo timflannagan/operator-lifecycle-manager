@@ -14,7 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
-	v1 "github.com/operator-framework/api/pkg/operators/v1"
+	operatorsv1 "github.com/operator-framework/api/pkg/operators/v1"
 	"github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/operator-framework/operator-registry/pkg/api"
 	opregistry "github.com/operator-framework/operator-registry/pkg/registry"
@@ -1091,7 +1091,7 @@ func TestResolver(t *testing.T) {
 				existingSub(namespace, "a.v2", "a", "alpha", catalog),
 				WithPhase(existingOperator(namespace, "a.v1", "a", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseReplacing),
 				WithPhase(existingOperator(namespace, "a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
-				newOG(namespace, "test", withUpgradeStrategy(v1.UnsafeFailForwardUpgradeStrategy)),
+				newOG(namespace, "test", withUpgradeStrategy(operatorsv1.UnsafeFailForwardUpgradeStrategy)),
 			},
 			bundlesByCatalog: map[resolvercache.SourceKey][]*api.Bundle{catalog: {
 				bundle("a.v1", "a", "alpha", "", Provides1, nil, nil, nil, withVersion("1.0.0")),
@@ -1139,7 +1139,7 @@ func TestResolver(t *testing.T) {
 				WithPhase(existingOperator(namespace, "a.v1", "a", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseReplacing),
 				WithPhase(existingOperator(namespace, "a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil), v1alpha1.CSVPhaseReplacing),
 				WithPhase(existingOperator(namespace, "a.v3", "a", "alpha", "a.v2", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
-				newOG(namespace, "test", withUpgradeStrategy(v1.UnsafeFailForwardUpgradeStrategy)),
+				newOG(namespace, "test", withUpgradeStrategy(operatorsv1.UnsafeFailForwardUpgradeStrategy)),
 			},
 			bundlesByCatalog: map[resolvercache.SourceKey][]*api.Bundle{catalog: {
 				bundle("a.v1", "a", "alpha", "", Provides1, nil, nil, nil, withVersion("1.0.0")),
@@ -1163,7 +1163,7 @@ func TestResolver(t *testing.T) {
 				WithPhase(existingOperator(namespace, "a.v1", "a", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
 				WithPhase(existingOperator(namespace, "a.v2", "a", "alpha", "a.v1", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
 				WithPhase(existingOperator(namespace, "a.v3", "a", "alpha", "a.v2", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
-				newOG(namespace, "test", withUpgradeStrategy(v1.UnsafeFailForwardUpgradeStrategy)),
+				newOG(namespace, "test", withUpgradeStrategy(operatorsv1.UnsafeFailForwardUpgradeStrategy)),
 			},
 			bundlesByCatalog: map[resolvercache.SourceKey][]*api.Bundle{catalog: {
 				bundle("a.v1", "a", "alpha", "", Provides1, nil, nil, nil, withVersion("1.0.0")),
@@ -1188,7 +1188,7 @@ func TestResolver(t *testing.T) {
 				existingSub(namespace, "a.v1", "a", "alpha", catalog),
 				WithPhase(existingOperator(namespace, "b.v1", "b", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseReplacing),
 				WithPhase(existingOperator(namespace, "a.v1", "a", "alpha", "", Provides1, nil, nil, nil), v1alpha1.CSVPhaseFailed),
-				newOG(namespace, "test", withUpgradeStrategy(v1.UnsafeFailForwardUpgradeStrategy)),
+				newOG(namespace, "test", withUpgradeStrategy(operatorsv1.UnsafeFailForwardUpgradeStrategy)),
 			},
 			bundlesByCatalog: map[resolvercache.SourceKey][]*api.Bundle{catalog: {
 				bundle("a.v1", "a", "alpha", "", Provides1, nil, nil, nil, withVersion("1.0.0")),
@@ -1441,15 +1441,15 @@ func newSub(namespace, pkg, channel string, catalog resolvercache.SourceKey, opt
 	return s
 }
 
-type ogOption func(*v1.OperatorGroup)
+type ogOption func(*operatorsv1.OperatorGroup)
 
 func withUpgradeStrategy(upgradeStrategy string) ogOption {
-	return func(og *v1.OperatorGroup) {
+	return func(og *operatorsv1.OperatorGroup) {
 		og.Spec.UpgradeStrategy = upgradeStrategy
 	}
 }
-func newOG(namespace string, name string, option ...ogOption) *v1.OperatorGroup {
-	og := &v1.OperatorGroup{
+func newOG(namespace string, name string, option ...ogOption) *operatorsv1.OperatorGroup {
+	og := &operatorsv1.OperatorGroup{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
