@@ -115,6 +115,38 @@ var _ = Describe("Fail Forward Upgrades", func() {
 			By("removing the testing catalog resources")
 			Expect(magicCatalog.UndeployCatalog(context.Background())).To(BeNil())
 		})
+		It("eventually reports a successful state when multiple bad versions are rolled forward", func() {
+			By("patching the catalog with another bad bundle version")
+			badProvider, err := NewFileBasedFiledBasedCatalogProvider(filepath.Join(testdataDir, "fail-forward/multiple-bad-versions", "example-operator.v0.2.1.yaml"))
+			Expect(err).To(BeNil())
+
+			err = magicCatalog.UpdateCatalog(context.Background(), badProvider)
+			Expect(err).To(BeNil())
+
+			By("waiting for the subscription to have the example-operator.v0.2.1 status.updatedCSV")
+			subscription, err = fetchSubscription(crclient, subscription.GetNamespace(), subscription.GetName(), subscriptionHasCurrentCSV("example-operator.v0.2.1"))
+			Expect(err).Should(BeNil())
+
+			By("patching the installplan to reduce the bundle unpacking timeout")
+			addBundleUnpackIPAnnotation(context.Background(), c, objectRefToNamespacedName(subscription.Status.InstallPlanRef), "1s")
+
+			By("waiting for the bad v0.2.1 InstallPlan to report a failed installation state")
+			ref := subscription.Status.InstallPlanRef
+			_, err = fetchInstallPlan(GinkgoT(), crclient, ref.Name, ref.Namespace, buildInstallPlanPhaseCheckFunc(operatorsv1alpha1.InstallPlanPhaseFailed))
+			Expect(err).To(BeNil())
+
+			By("patching the catalog with a fixed version")
+			fixedProvider, err := NewFileBasedFiledBasedCatalogProvider(filepath.Join(testdataDir, "fail-forward/multiple-bad-versions", "example-operator.v0.3.0.yaml"))
+			Expect(err).To(BeNil())
+
+			err = magicCatalog.UpdateCatalog(context.Background(), fixedProvider)
+			Expect(err).To(BeNil())
+
+			By("waiting for the subscription to have the example-operator.v0.3.0 status.updatedCSV")
+			subscription, err = fetchSubscription(crclient, subscription.GetNamespace(), subscription.GetName(), subscriptionHasCurrentCSV("example-operator.v0.3.0"))
+			Expect(err).Should(BeNil())
+		})
+
 		It("eventually reports a successful state when using skip ranges", func() {
 			By("patching the catalog with a fixed version")
 			fixedProvider, err := NewFileBasedFiledBasedCatalogProvider(filepath.Join(testdataDir, "fail-forward/skip-range", "example-operator.v0.3.0.yaml"))
@@ -136,14 +168,8 @@ var _ = Describe("Fail Forward Upgrades", func() {
 			Expect(err).To(BeNil())
 
 			By("waiting for the subscription to have the example-operator.v0.3.0 status.updatedCSV")
-			Eventually(func() bool {
-				subscription, err := crclient.OperatorsV1alpha1().Subscriptions(subscription.GetNamespace()).Get(context.Background(), subscription.GetName(), metav1.GetOptions{})
-				if err != nil || subscription == nil {
-					return false
-				}
-				ctx.Ctx().Logf(fmt.Sprintf("%s (%s): %s", subscription.Status.State, subscription.Status.CurrentCSV, subscription.Status.InstallPlanRef))
-				return subscription.Status.CurrentCSV == "example-operator.v0.3.0"
-			}).Should(BeTrue())
+			subscription, err = fetchSubscription(crclient, subscription.GetNamespace(), subscription.GetName(), subscriptionHasCurrentCSV("example-operator.v0.3.0"))
+			Expect(err).Should(BeNil())
 		})
 		It("eventually reports a failed state when using replaces", func() {
 			By("patching the catalog with a fixed version")
