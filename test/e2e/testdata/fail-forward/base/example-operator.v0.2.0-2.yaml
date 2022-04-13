@@ -13,7 +13,7 @@ entries:
 schema: olm.bundle
 name: example-operator.v0.2.0
 package: packageA
-image: quay.io/ankitathomas/example-operator-bundle:invalid-csv
+image: quay.io/olmtest/example-operator-bundle:0.2.0-invalid-csv
 properties:
   - type: olm.gvk
     value:

@@ -15,7 +15,7 @@ entries:
 schema: olm.bundle
 name: example-operator.v0.3.0
 package: packageA
-image: quay.io/joelanford/example-operator-bundle:0.3.0
+image: quay.io/olmtest/example-operator-bundle:0.3.0
 properties:
   - type: olm.gvk
     value:
