@@ -103,7 +103,7 @@ var _ = Describe("Fail Forward Upgrades", func() {
 			Expect(err).Should(BeNil())
 
 			By("patching the installplan to reduce the bundle unpacking timeout")
-			addBundleUnpackIPAnnotation(context.Background(), c, objectRefToNamespacedName(subscription.Status.InstallPlanRef), "1s")
+			addBundleUnpackTimeoutIPAnnotation(context.Background(), c, objectRefToNamespacedName(subscription.Status.InstallPlanRef), "1s")
 
 			By("waiting for the bad InstallPlan to report a failed installation state")
 			ref := subscription.Status.InstallPlanRef
@@ -128,7 +128,7 @@ var _ = Describe("Fail Forward Upgrades", func() {
 			Expect(err).Should(BeNil())
 
 			By("patching the installplan to reduce the bundle unpacking timeout")
-			addBundleUnpackIPAnnotation(context.Background(), c, objectRefToNamespacedName(subscription.Status.InstallPlanRef), "1s")
+			addBundleUnpackTimeoutIPAnnotation(context.Background(), c, objectRefToNamespacedName(subscription.Status.InstallPlanRef), "1s")
 
 			By("waiting for the bad v0.2.1 InstallPlan to report a failed installation state")
 			ref := subscription.Status.InstallPlanRef
@@ -180,14 +180,13 @@ var _ = Describe("Fail Forward Upgrades", func() {
 			Expect(err).To(BeNil())
 
 			By("waiting for the subscription to maintain the example-operator.v0.2.0 status.updatedCSV")
-			Consistently(func() bool {
+			Consistently(func() string {
 				subscription, err := crclient.OperatorsV1alpha1().Subscriptions(subscription.GetNamespace()).Get(context.Background(), subscription.GetName(), metav1.GetOptions{})
 				if err != nil || subscription == nil {
-					return false
+					return ""
 				}
-				ctx.Ctx().Logf(fmt.Sprintf("%s (%s): %s", subscription.Status.State, subscription.Status.CurrentCSV, subscription.Status.InstallPlanRef))
-				return subscription.Status.CurrentCSV == "example-operator.v0.2.0"
-			}).Should(BeTrue())
+				return subscription.Status.CurrentCSV
+			}).Should(Equal("example-operator.v0.2.0"))
 		})
 	})
 	When("a CSV resource is in a failed state", func() {
@@ -294,7 +293,7 @@ func objectRefToNamespacedName(ip *corev1.ObjectReference) types.NamespacedName 
 	}
 }
 
-func addBundleUnpackIPAnnotation(ctx context.Context, c client.Client, ipNN types.NamespacedName, timeout string) {
+func addBundleUnpackTimeoutIPAnnotation(ctx context.Context, c client.Client, ipNN types.NamespacedName, timeout string) {
 	Eventually(func() error {
 		ip := &operatorsv1alpha1.InstallPlan{}
 		if err := c.Get(ctx, ipNN, ip); err != nil {
