@@ -10,14 +10,14 @@ endif
 
 SHELL := /bin/bash
 ORG := github.com/operator-framework
-PKG   := $(ORG)/operator-lifecycle-manager
+export PKG   := $(ORG)/operator-lifecycle-manager
 MOD_FLAGS := $(shell (go version | grep -q -E "1\.1[1-9]") && echo -mod=vendor)
 BUILD_TAGS := "json1"
 CMDS  := $(shell go list $(MOD_FLAGS) ./cmd/...)
 TCMDS := $(shell go list $(MOD_FLAGS) ./test/e2e/...)
 MOCKGEN := ./scripts/update_mockgen.sh
 CODEGEN := ./scripts/update_codegen.sh
-IMAGE_REPO := quay.io/operator-framework/olm
+IMAGE_REPO ?= quay.io/operator-framework/olm
 IMAGE_TAG ?= "dev"
 SPECIFIC_UNIT_TEST := $(if $(TEST),-run $(TEST),)
 LOCAL_NAMESPACE := "olm"
@@ -229,6 +229,11 @@ release: manifests
 	@echo "Generating the $(ver) release"
 	docker pull $(IMAGE_REPO):$(ver)
 	$(MAKE) target=upstream ver=$(ver) quickstart=true package
+
+GORELEASER ?= goreleaser
+goreleaser: GORELEASER_ARGS ?= --snapshot --rm-dist
+goreleaser:
+	$(GORELEASER) $(GORELEASER_ARGS)
 
 verify-release: release
 	$(MAKE) diff
